@@ -163,9 +163,11 @@ def send_birthday_reminder(
 
         if int(smtp_port) == 465:
             print(f"Connecting to {smtp_server}:{smtp_port} using SSL...")
-            with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=15) as server:
+            with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=20) as server:
+                server.ehlo()
                 server.login(sender_email, sender_password)
                 server.sendmail(sender_email, [recipient], msg.as_string())
+
         else:
             with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
                 server.ehlo()
