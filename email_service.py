@@ -161,10 +161,11 @@ def send_birthday_reminder(
         msg.attach(MIMEText(text_body, "plain", "utf-8"))
         msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-        if smtp_port == 465:
+        if int(smtp_port) == 465:
             with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=15) as server:
                 server.login(sender_email, sender_password)
                 server.sendmail(sender_email, [recipient], msg.as_string())
+
         else:
             with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
                 server.ehlo()
