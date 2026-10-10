@@ -21,6 +21,5 @@
   { "name": "Stephen James Dean", "birth_date": "2025-06-25", "notes": "" },
   { "name": "My wife anniversary", "birth_date": "2006-06-08", "notes": "Wedding anniversary" },
   { "name": "Emay", "birth_date": "1977-10-11", "notes": "" },
-  { "name": "Jairus", "birth_date": "2026-01-19", "notes": "" },
-  { "name": "Test Birthday", "birth_date": "1990-10-15", "notes": "Testing 5-day alert" }
+  { "name": "Jairus", "birth_date": "2026-01-19", "notes": "" }
 ]
