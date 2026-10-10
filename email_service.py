@@ -162,10 +162,10 @@ def send_birthday_reminder(
         msg.attach(MIMEText(html_body, "html", "utf-8"))
 
         if int(smtp_port) == 465:
+            print(f"Connecting to {smtp_server}:{smtp_port} using SSL...")
             with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=15) as server:
                 server.login(sender_email, sender_password)
                 server.sendmail(sender_email, [recipient], msg.as_string())
-
         else:
             with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
                 server.ehlo()
@@ -177,6 +177,9 @@ def send_birthday_reminder(
         print(f"✅ Birthday reminder email successfully sent to {recipient}")
         return True
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"❌ Failed to send SMTP email: {e}")
         return False
+
 
