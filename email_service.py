@@ -1,3 +1,4 @@
+import email.utils
 import os
 import smtplib
 import sys
@@ -5,13 +6,36 @@ from datetime import date
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import List, Optional
-from data_store import Contact
+from data_store import Contact, get_days_until_birthday
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+
+
+def format_countdown(days_remaining: int) -> str:
+    """Format countdown days into human-readable string."""
+    if days_remaining == 0:
+        return "Today! 🎉"
+    elif days_remaining == 1:
+        return "Tomorrow (1 day left)"
+    else:
+        return f"In {days_remaining} days"
+
+
+def clean_email(addr: Optional[str]) -> str:
+    """
+    Clean and extract pure email address.
+    Strips leading/trailing whitespace, quotes, or display names,
+    safely preserving plus-addressing like orogjay+reminders@gmail.com.
+    """
+    if not addr:
+        return ""
+    addr = addr.strip()
+    _, parsed = email.utils.parseaddr(addr)
+    return parsed.strip() if parsed else addr
 
 
 def get_badge_info(c: Contact, target_date: date) -> tuple[str, str, str]:
@@ -25,14 +49,79 @@ def get_badge_info(c: Contact, target_date: date) -> tuple[str, str, str]:
         return f"Turning {years}", "#e0e7ff", "#4338ca"
 
 
-def render_html_email(contacts: List[Contact], target_date: date) -> str:
+def generate_email_subject(contacts: List[Contact], target_date: date | None = None) -> str:
+    """
+    Generate email subject line with countdown status or event count.
+    Examples:
+      - 🎂 Birthday Alert: Alice in 5 days!
+      - 🎂 Birthday Alert: Alice in 1 day (Tomorrow)!
+      - 🎂 Birthday Alert: Alice is Today! 🎉
+      - 🎂 Birthday Alert: 2 upcoming events (Alice in 3 days)!
+    """
+    if not contacts:
+        return "🎂 Birthday Alert: No upcoming events"
+
+    if target_date is None:
+        target_date = date.today()
+
+    if len(contacts) == 1:
+        c = contacts[0]
+        days = c.days_remaining
+        if days is None:
+            c_target = c.target_date or target_date
+            days = (c_target - target_date).days
+
+        if days == 0:
+            return f"🎂 Birthday Alert: {c.name} is Today! 🎉"
+        elif days == 1:
+            return f"🎂 Birthday Alert: {c.name} in 1 day (Tomorrow)!"
+        else:
+            return f"🎂 Birthday Alert: {c.name} in {days} days!"
+    else:
+        count = len(contacts)
+        first = contacts[0]
+        days = first.days_remaining
+        if days is None:
+            f_target = first.target_date or target_date
+            days = (f_target - target_date).days
+
+        if days == 0:
+            status = f"{first.name} is Today! 🎉"
+        elif days == 1:
+            status = f"{first.name} tomorrow"
+        else:
+            status = f"{first.name} in {days} days"
+
+        return f"🎂 Birthday Alert: {count} upcoming events ({status})!"
+
+
+def render_html_email(contacts: List[Contact], target_date: date | None = None) -> str:
     """Render a clean, responsive HTML email template for upcoming birthdays & events."""
+    if target_date is None:
+        target_date = date.today()
+
     date_formatted = target_date.strftime("%B %d, %Y")
     count = len(contacts)
 
     cards_html = ""
     for c in contacts:
-        badge_text, bg_color, text_color = get_badge_info(c, target_date)
+        c_target_date = c.target_date or target_date
+        c_days = c.days_remaining
+        if c_days is None:
+            c_days = (c_target_date - target_date).days
+
+        countdown_text = format_countdown(c_days)
+        badge_text, bg_color, text_color = get_badge_info(c, c_target_date)
+
+        if c_days == 0:
+            countdown_bg = "#fee2e2"
+            countdown_color = "#991b1b"
+        elif c_days == 1:
+            countdown_bg = "#fef3c7"
+            countdown_color = "#92400e"
+        else:
+            countdown_bg = "#e0e7ff"
+            countdown_color = "#3730a3"
 
         email_row = ""
         if c.email:
@@ -44,14 +133,20 @@ def render_html_email(contacts: List[Contact], target_date: date) -> str:
 
         cards_html += f"""
         <div style="background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.04);">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
                 <h3 style="margin: 0; color: #1f2937; font-size: 18px; font-weight: 600;">{c.name}</h3>
-                <span style="background-color: {bg_color}; color: {text_color}; padding: 4px 12px; border-radius: 9999px; font-size: 13px; font-weight: 600;">
-                    {badge_text}
-                </span>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <span style="background-color: {countdown_bg}; color: {countdown_color}; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700;">
+                        {countdown_text}
+                    </span>
+                    <span style="background-color: {bg_color}; color: {text_color}; padding: 4px 12px; border-radius: 9999px; font-size: 13px; font-weight: 600;">
+                        {badge_text}
+                    </span>
+                </div>
             </div>
             <div style="margin-top: 12px; color: #4b5563; font-size: 14px; line-height: 1.5;">
-                <p style="margin: 4px 0;">📅 <strong>Date:</strong> {c.birthdate.strftime('%B %d, %Y')}</p>
+                <p style="margin: 4px 0;">⏰ <strong>Status:</strong> <strong style="color: {countdown_color};">{countdown_text}</strong> ({c_target_date.strftime('%B %d, %Y')})</p>
+                <p style="margin: 4px 0;">📅 <strong>Birthdate:</strong> {c.birthdate.strftime('%B %d, %Y')}</p>
                 {email_row}
                 {notes_row}
             </div>
@@ -72,14 +167,14 @@ def render_html_email(contacts: List[Contact], target_date: date) -> str:
             <div style="font-size: 48px; margin-bottom: 8px;">🎈</div>
             <h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.025em;">Birthday & Event Alert!</h1>
             <p style="margin-top: 8px; margin-bottom: 0; font-size: 15px; color: #e0e7ff;">
-                {count} event{'s' if count > 1 else ''} coming up in <strong>5 days</strong> on {date_formatted}
+                {count} upcoming event{'s' if count > 1 else ''} in the next 5 days (as of {date_formatted})
             </p>
         </div>
 
         <!-- Body Content -->
         <div style="padding: 24px; background-color: #f9fafb;">
             <p style="margin-top: 0; margin-bottom: 20px; color: #374151; font-size: 15px; line-height: 1.6;">
-                Here are the upcoming birthdays and events occurring in exactly 5 days:
+                Here are the birthdays and events happening today and over the next 5 days:
             </p>
             {cards_html}
         </div>
@@ -95,17 +190,27 @@ def render_html_email(contacts: List[Contact], target_date: date) -> str:
     return html
 
 
-def render_text_email(contacts: List[Contact], target_date: date) -> str:
+def render_text_email(contacts: List[Contact], target_date: date | None = None) -> str:
     """Render plain-text version of email for fallback."""
+    if target_date is None:
+        target_date = date.today()
+
     date_formatted = target_date.strftime("%B %d, %Y")
     lines = [
-        f"BIRTHDAY & EVENT REMINDER - {len(contacts)} upcoming event(s) on {date_formatted} (in 5 days):",
+        f"BIRTHDAY & EVENT REMINDER - {len(contacts)} upcoming event(s) in the next 5 days (as of {date_formatted}):",
         "=" * 60,
     ]
     for c in contacts:
-        badge_text, _, _ = get_badge_info(c, target_date)
-        lines.append(f"- {c.name} ({badge_text})")
-        lines.append(f"  Date: {c.birthdate.strftime('%B %d, %Y')}")
+        c_target_date = c.target_date or target_date
+        c_days = c.days_remaining
+        if c_days is None:
+            c_days = (c_target_date - target_date).days
+
+        countdown_text = format_countdown(c_days)
+        badge_text, _, _ = get_badge_info(c, c_target_date)
+        lines.append(f"- {c.name} ({badge_text}) — {countdown_text}")
+        lines.append(f"  Event Date: {c_target_date.strftime('%B %d, %Y')}")
+        lines.append(f"  Birthdate: {c.birthdate.strftime('%B %d, %Y')}")
         if c.email:
             lines.append(f"  Email: {c.email}")
         if c.notes:
@@ -117,7 +222,7 @@ def render_text_email(contacts: List[Contact], target_date: date) -> str:
 
 def send_birthday_reminder(
     contacts: List[Contact],
-    target_date: date,
+    target_date: date | None = None,
     recipient_email: Optional[str] = None
 ) -> bool:
     """
@@ -128,23 +233,28 @@ def send_birthday_reminder(
         print("ℹ️ No upcoming birthdays/events to send notification for.")
         return True
 
+    if target_date is None:
+        target_date = date.today()
+
     smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     sender_email = os.getenv("SENDER_EMAIL") or os.getenv("SMTP_USERNAME")
     sender_password = os.getenv("SENDER_PASSWORD") or os.getenv("SMTP_PASSWORD")
     recipient = recipient_email or os.getenv("RECIPIENT_EMAIL") or os.getenv("NOTIFICATION_RECIPIENT") or sender_email
 
+    clean_sender = clean_email(sender_email)
+    clean_recipient = clean_email(recipient)
 
     dry_run = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
 
-    subject = f"🎂 Birthday Alert: {len(contacts)} upcoming event{'s' if len(contacts) > 1 else ''} on {target_date.strftime('%b %d')}!"
+    subject = generate_email_subject(contacts, target_date)
     html_body = render_html_email(contacts, target_date)
     text_body = render_text_email(contacts, target_date)
 
-    if dry_run or not sender_email or not sender_password or not recipient:
+    if dry_run or not clean_sender or not sender_password or not clean_recipient:
         print("\n--- [SIMULATED EMAIL NOTIFICATION] ---")
-        print(f"To: {recipient or '[RECIPIENT_NOT_SET]'}")
-        print(f"From: {sender_email or '[SENDER_NOT_SET]'}")
+        print(f"To: {clean_recipient or '[RECIPIENT_NOT_SET]'}")
+        print(f"From: {clean_sender or '[SENDER_NOT_SET]'}")
         print(f"Subject: {subject}")
         print("\n" + text_body)
         print("--------------------------------------\n")
@@ -155,8 +265,8 @@ def send_birthday_reminder(
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = sender_email
-        msg["To"] = recipient
+        msg["From"] = clean_sender
+        msg["To"] = clean_recipient
 
         msg.attach(MIMEText(text_body, "plain", "utf-8"))
         msg.attach(MIMEText(html_body, "html", "utf-8"))
@@ -165,23 +275,20 @@ def send_birthday_reminder(
             print(f"Connecting to {smtp_server}:{smtp_port} using SSL...")
             with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=20) as server:
                 server.ehlo()
-                server.login(sender_email, sender_password)
-                server.sendmail(sender_email, [recipient], msg.as_string())
-
+                server.login(clean_sender, sender_password)
+                server.sendmail(clean_sender, [clean_recipient], msg.as_string())
         else:
             with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
                 server.ehlo()
                 server.starttls()
                 server.ehlo()
-                server.login(sender_email, sender_password)
-                server.sendmail(sender_email, [recipient], msg.as_string())
+                server.login(clean_sender, sender_password)
+                server.sendmail(clean_sender, [clean_recipient], msg.as_string())
 
-        print(f"✅ Birthday reminder email successfully sent to {recipient}")
+        print(f"✅ Birthday reminder email successfully sent to {clean_recipient}")
         return True
     except Exception as e:
         import traceback
         traceback.print_exc()
         print(f"❌ Failed to send SMTP email: {e}")
         return False
-
-

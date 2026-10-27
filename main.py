@@ -11,13 +11,12 @@ if hasattr(sys.stdout, "reconfigure"):
         pass
 
 from data_store import load_contacts, get_upcoming_birthdays
-from email_service import send_birthday_reminder
-
+from email_service import send_birthday_reminder, format_countdown
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Birthday Reminder Agent - Detect birthdays in X days and send email alerts."
+        description="Birthday Reminder Agent - Detect birthdays in 0 to X days window and send email alerts."
     )
     parser.add_argument(
         "--contacts",
@@ -29,7 +28,7 @@ def parse_args():
         "--days",
         type=int,
         default=5,
-        help="Days ahead to check for upcoming birthdays (default: 5)",
+        help="Days ahead window to check for upcoming birthdays (0 to N days, default: 5)",
     )
     parser.add_argument(
         "--date",
@@ -42,7 +41,7 @@ def parse_args():
         action="store_true",
         help="Simulate email sending without connecting to SMTP server",
     )
-    return parser.parse_parse_args() if hasattr(parser, "parse_parse_args") else parser.parse_args()
+    return parser.parse_args()
 
 
 def run_agent(
@@ -69,27 +68,26 @@ def run_agent(
         return 1
 
     print(f"🔍 Loaded {len(contacts)} contacts from '{contacts_path}'")
-    print(f"📅 Checking for birthdays occurring in exactly {days_ahead} days from {base_date.strftime('%Y-%m-%d')}...")
+    print(f"📅 Checking for birthdays occurring within the next {days_ahead} days (0 to {days_ahead} days) from {base_date.strftime('%Y-%m-%d')}...")
 
     upcoming = get_upcoming_birthdays(contacts, from_date=base_date, days_ahead=days_ahead)
 
-    from datetime import timedelta
-    target_date = base_date + timedelta(days=days_ahead)
-
     if not upcoming:
-        print(f"✨ No birthdays found on {target_date.strftime('%Y-%m-%d')} (in {days_ahead} days).")
+        print(f"✨ No birthdays found within the next {days_ahead} days from {base_date.strftime('%Y-%m-%d')}.")
         return 0
 
-    print(f"🎉 Found {len(upcoming)} birthday(s) on {target_date.strftime('%Y-%m-%d')}:")
+    print(f"🎉 Found {len(upcoming)} upcoming event(s) in the next {days_ahead} days:")
     for contact in upcoming:
-        age = contact.age_on_date(target_date)
-        print(f"   • {contact.name} ({contact.email}) - Turning {age}")
+        age = contact.age_on_date(contact.target_date or base_date)
+        days = contact.days_remaining if contact.days_remaining is not None else 0
+        countdown_str = format_countdown(days)
+        print(f"   • {contact.name} ({countdown_str}) - Turning {age}")
 
     if dry_run:
         import os
         os.environ["DRY_RUN"] = "true"
 
-    success = send_birthday_reminder(upcoming, target_date)
+    success = send_birthday_reminder(upcoming, base_date)
     return 0 if success else 1
 
 
